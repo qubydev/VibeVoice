@@ -18,6 +18,7 @@ import librosa
 import soundfile as sf
 import torch
 import os
+import shutil
 import traceback
 
 from vibevoice.modular.configuration_vibevoice import VibeVoiceConfig
@@ -889,6 +890,50 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                         elem_classes="speaker-item"
                     )
                     speaker_selections.append(speaker)
+                
+                # --- Upload custom voices UI ---
+                with gr.Accordion("🎤 Upload Custom Voices", open=False):
+                    upload_audio = gr.File(label="Upload Voice Samples", file_count="multiple", file_types=["audio"])
+                    process_upload_btn = gr.Button("Add Uploaded Voices to Speaker Selection")
+
+                # Function to process uploaded voice files and refresh speaker dropdown choices
+                def process_and_refresh_voices(uploaded_files):
+                    # If no files were uploaded, just return unchanged dropdowns and clear the file input
+                    if not uploaded_files:
+                        return [gr.update() for _ in speaker_selections] + [None]
+
+                    # Ensure voices directory exists next to this script
+                    voices_dir = os.path.join(os.path.dirname(__file__), "voices")
+                    os.makedirs(voices_dir, exist_ok=True)
+
+                    # Copy uploaded files into the voices directory
+                    for f in uploaded_files:
+                        try:
+                            # f.name is the temporary file path provided by Gradio
+                            dest_path = os.path.join(voices_dir, os.path.basename(f.name))
+                            shutil.copy(f.name, dest_path)
+                        except Exception as e:
+                            print(f"Error copying uploaded file {getattr(f, 'name', str(f))}: {e}")
+
+                    # Re-scan voice presets and refresh choices
+                    try:
+                        demo_instance.setup_voice_presets()
+                    except Exception as e:
+                        # setup_voice_presets may raise a gr.Error if no presets found; log and continue
+                        print(f"Warning while refreshing voice presets: {e}")
+
+                    new_choices = list(demo_instance.available_voices.keys())
+                    new_choices = sorted(new_choices)
+                    # Update each speaker dropdown's choices and clear the file input
+                    return [gr.update(choices=new_choices) for _ in speaker_selections] + [None]
+
+                # Wire the upload processing button to refresh speaker dropdowns
+                process_upload_btn.click(
+                    fn=process_and_refresh_voices,
+                    inputs=[upload_audio],
+                    outputs=speaker_selections + [upload_audio],
+                    queue=False
+                )
                 
                 # Advanced settings
                 gr.Markdown("### ⚙️ **Advanced Settings**")
